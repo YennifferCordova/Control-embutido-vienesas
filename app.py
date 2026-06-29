@@ -18,7 +18,7 @@ st.markdown("---")
 # ─── LINK DE ONEDRIVE ──────────────────────────────────────────────────────
 ONEDRIVE_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAeiSB22E4dE5dTLQ89UsMrQ?e=3b0TNv"
 # Convertir link compartido a link de descarga directa
-DOWNLOAD_URL = ONEDRIVE_URL.replace("/:x:/g/", "/:x:/r/").split("?")[0] + "?download=1"
+DOWNLOAD_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAeiSB22E4dE5dTLQ89UsMrQ?download=1&e=e3ClKv"
 
 # ─── CARGA DE DATOS ────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)  # cache 5 minutos
