@@ -16,7 +16,7 @@ st.title("🌭 Control de Proceso — Vienesas")
 st.markdown("---")
 
 # ─── LINK DE ONEDRIVE ──────────────────────────────────────────────────────
-ONEDRIVE_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAQJcK4T8i3r6Ag82M4R1t8M?e=0sbztt"
+ONEDRIVE_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAeiSB22E4dE5dTLQ89UsMrQ?e=3b0TNv"
 # Convertir link compartido a link de descarga directa
 DOWNLOAD_URL = ONEDRIVE_URL.replace("/:x:/g/", "/:x:/r/").split("?")[0] + "?download=1"
 
