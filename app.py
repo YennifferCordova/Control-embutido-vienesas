@@ -2,8 +2,8 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from office365.sharepoint.client_context import ClientContext
-from office365.runtime.auth.user_credential import UserCredential
+import requests
+from io import BytesIO
 
 # ─── CONFIGURACIÓN DE PÁGINA ───────────────────────────────────────────────
 st.set_page_config(
@@ -15,60 +15,42 @@ st.set_page_config(
 st.title("🌭 Control de Proceso — Vienesas")
 st.markdown("---")
 
-# ─── CONEXIÓN A SHAREPOINT ─────────────────────────────────────────────────
-@st.cache_data(ttl=300)  # cache 5 minutos — no consulta SharePoint en cada clic
-def cargar_datos(sitio, usuario, clave):
+# ─── LINK DE ONEDRIVE ──────────────────────────────────────────────────────
+ONEDRIVE_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAQJcK4T8i3r6Ag82M4R1t8M?e=0sbztt"
+# Convertir link compartido a link de descarga directa
+DOWNLOAD_URL = ONEDRIVE_URL.replace("/:x:/g/", "/:x:/r/").split("?")[0] + "?download=1"
+
+# ─── CARGA DE DATOS ────────────────────────────────────────────────────────
+@st.cache_data(ttl=300)  # cache 5 minutos
+def cargar_datos():
     try:
-        ctx = ClientContext(sitio).with_credentials(
-            UserCredential(usuario, clave)
-        )
-        # Lista Muestreo
-        items_m = ctx.web.lists.get_by_title("Muestreo").items \
-                      .select(["Turno","Maquina","TipoMasa","Tripa","Fecha",
-                               "CantidadTotal","PromedioLargo","PromedioTorsiones",
-                               "Punta","Cola",
-                               "Largo_1","Largo_2","Largo_3","Largo_4","Largo_5",
-                               "Largo_6","Largo_7","Largo_8","Largo_9","Largo_10"]) \
-                      .get().execute_query()
+        response = requests.get(DOWNLOAD_URL, timeout=30)
+        response.raise_for_status()
+        excel_data = BytesIO(response.content)
 
-        muestreo = pd.DataFrame([{
-            "Turno":             i.properties.get("Turno",""),
-            "Maquina":           i.properties.get("Maquina",""),
-            "TipoMasa":          i.properties.get("TipoMasa",""),
-            "Tripa":             i.properties.get("Tripa",""),
-            "Fecha":             pd.to_datetime(i.properties.get("Fecha")),
-            "CantidadTotal":     i.properties.get("CantidadTotal",0),
-            "PromedioLargo":     float(i.properties.get("PromedioLargo") or 0),
-            "PromedioTorsiones": float(i.properties.get("PromedioTorsiones") or 0),
-            "Punta":             float(i.properties.get("Punta") or 0),
-            "Cola":              float(i.properties.get("Cola") or 0),
-            **{f"Largo_{j}": float(i.properties.get(f"Largo_{j}") or 0) for j in range(1,11)}
-        } for i in items_m])
+        muestreo = pd.read_excel(excel_data, sheet_name="Muestreo")
+        excel_data.seek(0)
+        sticks = pd.read_excel(excel_data, sheet_name="StickRotos")
 
-        # Calcular columna p (proporción defectuosas)
-        largos = [f"Largo_{j}" for j in range(1,11)]
-        muestreo["Defectuosas"] = muestreo[largos].apply(
-            lambda row: sum(1 for v in row if v < 14.0 or v > 14.7), axis=1
-        )
+        # Limpiar y convertir tipos
+        muestreo["Fecha"] = pd.to_datetime(muestreo["Fecha"], errors="coerce")
+        muestreo["PromedioLargo"] = pd.to_numeric(muestreo["PromedioLargo"], errors="coerce").fillna(0)
+        muestreo["PromedioTorsiones"] = pd.to_numeric(muestreo["PromedioTorsiones"], errors="coerce").fillna(0)
+        muestreo["Defectuosas"] = pd.to_numeric(muestreo["Defectuosas"], errors="coerce").fillna(0)
         muestreo["p"] = muestreo["Defectuosas"] / 10
 
-        # Lista StickRotos
-        items_s = ctx.web.lists.get_by_title("RegistrosStickRotos").items \
-                      .select(["Turno","Maquina","Fecha","TotalRotos",
-                               "Tripa23180_40","Tripa23180_50",
-                               "Tripa21170_40","Tripa21170_50"]) \
-                      .get().execute_query()
+        for j in range(1, 11):
+            col = f"Largo_{j}"
+            if col in muestreo.columns:
+                muestreo[col] = pd.to_numeric(muestreo[col], errors="coerce").fillna(0)
 
-        sticks = pd.DataFrame([{
-            "Turno":         i.properties.get("Turno",""),
-            "Maquina":       i.properties.get("Maquina",""),
-            "Fecha":         pd.to_datetime(i.properties.get("Fecha")),
-            "TotalRotos":    int(i.properties.get("TotalRotos") or 0),
-            "T23180_40":     int(i.properties.get("Tripa23180_40") or 0),
-            "T23180_50":     int(i.properties.get("Tripa23180_50") or 0),
-            "T21170_40":     int(i.properties.get("Tripa21170_40") or 0),
-            "T21170_50":     int(i.properties.get("Tripa21170_50") or 0),
-        } for i in items_s])
+        sticks["Fecha"] = pd.to_datetime(sticks["Fecha"], errors="coerce")
+        sticks["TotalRotos"] = pd.to_numeric(sticks["TotalRotos"], errors="coerce").fillna(0)
+
+        # Convertir columnas de texto
+        for col in ["Turno", "Maquina", "TipoMasa", "Tripa"]:
+            if col in muestreo.columns:
+                muestreo[col] = muestreo[col].astype(str)
 
         return muestreo, sticks, None
 
@@ -99,7 +81,7 @@ def estilo_base(fig, titulo, ylabel):
     return fig
 
 
-# ─── CARTA X̄  ──────────────────────────────────────────────────────────────
+# ─── CARTA X̄ ──────────────────────────────────────────────────────────────
 def carta_xbarra(df, maquina, campo="PromedioLargo", titulo_extra="Largo (cm)"):
     df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
     if df_m.empty:
@@ -202,15 +184,13 @@ def grafico_sticks_apilado(df_stick, maquina=None):
     etiquetas = df["Fecha"].dt.strftime("%d/%m %H:%M").tolist()
     fig = go.Figure()
     for campo, nombre, color in [
-        ("T23180_40", "23-180 / 40cm", "#534AB7"),
-        ("T23180_50", "23-180 / 50cm", "#AFA9EC"),
-        ("T21170_40", "21-170 / 40cm", "#D85A30"),
-        ("T21170_50", "21-170 / 50cm", "#F0997B"),
+        ("Tripa23180_40", "23-180 / 40cm", "#534AB7"),
+        ("Tripa23180_50", "23-180 / 50cm", "#AFA9EC"),
+        ("Tripa21170_40", "21-170 / 40cm", "#D85A30"),
+        ("Tripa21170_50", "21-170 / 50cm", "#F0997B"),
     ]:
-        fig.add_trace(go.Bar(
-            x=etiquetas, y=df[campo], name=nombre,
-            marker_color=color
-        ))
+        if campo in df.columns:
+            fig.add_trace(go.Bar(x=etiquetas, y=df[campo], name=nombre, marker_color=color))
     fig.update_layout(barmode="stack", height=300,
                       title="Comparativo stick rotos por tipo de tripa",
                       margin=dict(l=10,r=10,t=50,b=10),
@@ -219,37 +199,24 @@ def grafico_sticks_apilado(df_stick, maquina=None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  SIDEBAR — credenciales SharePoint
-# ═══════════════════════════════════════════════════════════════════════════
-with st.sidebar:
-    st.header("🔗 Conexión SharePoint")
-    sitio   = st.text_input("URL del sitio", placeholder="https://empresa.sharepoint.com/sites/Calidad")
-    usuario = st.text_input("Correo corporativo", placeholder="tu@empresa.com")
-    clave   = st.text_input("Contraseña", type="password")
-    conectar = st.button("Conectar y cargar datos", type="primary", use_container_width=True)
-
-    st.markdown("---")
-    st.caption("Los datos se actualizan cada 5 minutos automáticamente.")
-
-# ═══════════════════════════════════════════════════════════════════════════
 #  CARGA DE DATOS
 # ═══════════════════════════════════════════════════════════════════════════
-if not sitio or not usuario or not clave:
-    st.info("👈 Ingresa las credenciales de SharePoint en el panel izquierdo para cargar los datos.")
-    st.stop()
-
-with st.spinner("Conectando con SharePoint..."):
-    muestreo, sticks, error = cargar_datos(sitio, usuario, clave)
+with st.spinner("Cargando datos desde OneDrive..."):
+    muestreo, sticks, error = cargar_datos()
 
 if error:
-    st.error(f"❌ Error de conexión: {error}")
+    st.error(f"❌ Error al cargar datos: {error}")
     st.stop()
 
 if muestreo is None or muestreo.empty:
-    st.warning("⚠️ No se encontraron datos en la lista Muestreo.")
+    st.warning("⚠️ No se encontraron datos en el archivo Excel.")
     st.stop()
 
 st.success(f"✅ Datos cargados: {len(muestreo)} registros de muestreo | {len(sticks) if sticks is not None else 0} registros de stick rotos")
+
+if st.button("🔄 Actualizar datos"):
+    st.cache_data.clear()
+    st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  FILTROS GLOBALES
@@ -297,7 +264,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 Historial"
 ])
 
-# ── TAB 1: Carta X̄ Largo ───────────────────────────────────────────────────
 with tab1:
     st.markdown("**Promedio de largo por muestreo — comparación por turno y máquina**")
     c1, c2 = st.columns(2)
@@ -310,7 +276,6 @@ with tab1:
         if fig: st.plotly_chart(fig, use_container_width=True)
         else:   st.info("Sin datos para VEMAG 2")
 
-# ── TAB 2: Carta X̄ Torsiones ───────────────────────────────────────────────
 with tab2:
     st.markdown("**Promedio de torsiones por muestreo — comparación por turno y máquina**")
     c1, c2 = st.columns(2)
@@ -323,7 +288,6 @@ with tab2:
         if fig: st.plotly_chart(fig, use_container_width=True)
         else:   st.info("Sin datos para VEMAG 2")
 
-# ── TAB 3: Carta p ─────────────────────────────────────────────────────────
 with tab3:
     st.markdown("**Proporción de vienesas fuera de rango (largo < 14.0 cm o > 14.7 cm)**")
     c1, c2 = st.columns(2)
@@ -336,7 +300,6 @@ with tab3:
         if fig: st.plotly_chart(fig, use_container_width=True)
         else:   st.info("Sin datos para VEMAG 2")
 
-# ── TAB 4: Carta C Sticks ──────────────────────────────────────────────────
 with tab4:
     if sticks is None or sticks.empty:
         st.info("Sin datos de stick rotos aún.")
@@ -344,7 +307,6 @@ with tab4:
         df_stick_f = sticks.copy()
         if turnos_sel:
             df_stick_f = df_stick_f[df_stick_f["Turno"].isin([str(t) for t in turnos_sel])]
-
         c1, c2 = st.columns(2)
         with c1:
             fig = carta_c(df_stick_f, "VEMAG 1")
@@ -352,16 +314,14 @@ with tab4:
         with c2:
             fig = carta_c(df_stick_f, "VEMAG 2")
             if fig: st.plotly_chart(fig, use_container_width=True)
-
         fig_bar = grafico_sticks_apilado(df_stick_f)
         if fig_bar: st.plotly_chart(fig_bar, use_container_width=True)
 
-# ── TAB 5: Historial ───────────────────────────────────────────────────────
 with tab5:
     st.markdown("**Registros de muestreo**")
     cols_mostrar = ["Fecha","Turno","Maquina","TipoMasa","Tripa",
                     "CantidadTotal","PromedioLargo","PromedioTorsiones",
-                    "Punta","Cola","Defectuosas","p"]
+                    "Defectuosas","p"]
     cols_ok = [c for c in cols_mostrar if c in df_filtrado.columns]
     st.dataframe(
         df_filtrado[cols_ok].sort_values("Fecha", ascending=False),
