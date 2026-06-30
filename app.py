@@ -559,18 +559,3 @@ with tab5:
         columnas_sel2 = [tripas_disp2_ok[t] for t in tripa_sel2]
         fig_lineas_turno = grafico_lineas_turno(df_stick_f, columnas_sel2)
         if fig_lineas_turno: st.plotly_chart(fig_lineas_turno, use_container_width=True)
-
-        st.markdown("---")
-        st.markdown("**Total stick rotos por turno**")
-        tripas_disp = {
-            "23-180 / 40cm": "Tripa23180_40",
-            "23-180 / 50cm": "Tripa23180_50",
-            "21-170 / 40cm": "Tripa21170_40",
-            "21-170 / 50cm": "Tripa21170_50",
-        }
-        tripas_disp_ok = {k: v for k, v in tripas_disp.items() if v in df_stick_f.columns}
-        tripa_sel = st.multiselect("Filtrar por tipo de tripa", list(tripas_disp_ok.keys()),
-                                    default=list(tripas_disp_ok.keys()), key="tripa_turno")
-        columnas_sel = [tripas_disp_ok[t] for t in tripa_sel]
-        fig_turno = grafico_total_por_turno(df_stick_f, columnas_sel)
-        if fig_turno: st.plotly_chart(fig_turno, use_container_width=True)
