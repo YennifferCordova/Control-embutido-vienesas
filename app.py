@@ -317,7 +317,26 @@ def carta_u(df_stick, maquina=None):
     return estilo_base(fig, f"Carta U — Stick rotos por unidad | {label}", "Rotos por unidad")
 
 
-# ─── GRÁFICO COMPARATIVO POR TIPO DE TRIPA (LÍNEAS) ───────────────────────
+# ─── GRÁFICO TOTAL ROTOS POR TURNO ─────────────────────────────────────────
+def grafico_total_por_turno(df_stick, columnas_tripa):
+    df = df_stick.copy()
+    if df.empty: return None
+
+    df["TotalFiltrado"] = df[columnas_tripa].sum(axis=1) if columnas_tripa else df["TotalRotos"]
+    resumen = df.groupby("Turno")["TotalFiltrado"].sum().reset_index()
+    resumen = resumen.sort_values("Turno")
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=resumen["Turno"], y=resumen["TotalFiltrado"],
+        marker_color=[COLORES_TURNO.get(t, "#888") for t in resumen["Turno"]],
+        text=resumen["TotalFiltrado"], textposition="outside"
+    ))
+    fig.update_layout(height=320,
+                      title="Total stick rotos por turno",
+                      xaxis_title="Turno", yaxis_title="Cantidad total",
+                      margin=dict(l=10,r=10,t=50,b=10))
+    return fig
 def grafico_sticks_apilado(df_stick, maquina=None):
     df = df_stick.copy()
     if maquina:
@@ -500,3 +519,18 @@ with tab5:
         df_stick_bar = df_stick_f[df_stick_f["Turno"].isin(turno_bar_sel)] if turno_bar_sel else df_stick_f
         fig_bar = grafico_sticks_apilado(df_stick_bar)
         if fig_bar: st.plotly_chart(fig_bar, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("**Total stick rotos por turno**")
+        tripas_disp = {
+            "23-180 / 40cm": "Tripa23180_40",
+            "23-180 / 50cm": "Tripa23180_50",
+            "21-170 / 40cm": "Tripa21170_40",
+            "21-170 / 50cm": "Tripa21170_50",
+        }
+        tripas_disp_ok = {k: v for k, v in tripas_disp.items() if v in df_stick_f.columns}
+        tripa_sel = st.multiselect("Filtrar por tipo de tripa", list(tripas_disp_ok.keys()),
+                                    default=list(tripas_disp_ok.keys()), key="tripa_turno")
+        columnas_sel = [tripas_disp_ok[t] for t in tripa_sel]
+        fig_turno = grafico_total_por_turno(df_stick_f, columnas_sel)
+        if fig_turno: st.plotly_chart(fig_turno, use_container_width=True)
