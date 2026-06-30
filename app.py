@@ -16,12 +16,10 @@ st.title("🌭 Control de Proceso — Vienesas")
 st.markdown("---")
 
 # ─── LINK DE ONEDRIVE ──────────────────────────────────────────────────────
-ONEDRIVE_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAeiSB22E4dE5dTLQ89UsMrQ?e=3b0TNv"
-# Convertir link compartido a link de descarga directa
 DOWNLOAD_URL = "https://alumnosutalca-my.sharepoint.com/:x:/g/personal/ycordova21_alumnos_utalca_cl/IQCLYCe918veTJb2uRXKuyzYAeiSB22E4dE5dTLQ89UsMrQ?download=1&e=e3ClKv"
 
 # ─── CARGA DE DATOS ────────────────────────────────────────────────────────
-@st.cache_data(ttl=300)  # cache 5 minutos
+@st.cache_data(ttl=300)
 def cargar_datos():
     try:
         response = requests.get(DOWNLOAD_URL, timeout=30)
@@ -32,34 +30,60 @@ def cargar_datos():
         excel_data.seek(0)
         sticks = pd.read_excel(excel_data, sheet_name="StickRotos")
 
-        # Limpiar y convertir tipos
         muestreo["Fecha"] = pd.to_datetime(muestreo["Fecha"], errors="coerce")
-        muestreo["PromedioLargo"] = pd.to_numeric(muestreo["PromedioLargo"], errors="coerce").fillna(0)
-        muestreo["PromedioTorsiones"] = pd.to_numeric(muestreo["PromedioTorsiones"], errors="coerce").fillna(0)
-        muestreo["Defectuosas"] = pd.to_numeric(muestreo["Defectuosas"], errors="coerce").fillna(0)
-        muestreo["p"] = muestreo["Defectuosas"] / 10
-
-        for j in range(1, 11):
-            col = f"Largo_{j}"
+        for col in ["PromedioLargo", "PromedioTorsiones", "Defectuosas", "Punta", "Cola"]:
             if col in muestreo.columns:
                 muestreo[col] = pd.to_numeric(muestreo[col], errors="coerce").fillna(0)
 
-        sticks["Fecha"] = pd.to_datetime(sticks["Fecha"], errors="coerce")
-        sticks["TotalRotos"] = pd.to_numeric(sticks["TotalRotos"], errors="coerce").fillna(0)
+        for j in range(1, 11):
+            for prefix in ["Largo_", "Torsion_"]:
+                col = f"{prefix}{j}"
+                if col in muestreo.columns:
+                    muestreo[col] = pd.to_numeric(muestreo[col], errors="coerce").fillna(0)
 
-        # Convertir columnas de texto
+        muestreo["p"] = muestreo["Defectuosas"] / 10
+        muestreo["np"] = muestreo["Defectuosas"]
+
+        # Calcular Rango para Largo y Torsiones
+        largos = [f"Largo_{j}" for j in range(1, 11) if f"Largo_{j}" in muestreo.columns]
+        torsiones = [f"Torsion_{j}" for j in range(1, 11) if f"Torsion_{j}" in muestreo.columns]
+        if largos:
+            muestreo["RangoLargo"] = muestreo[largos].max(axis=1) - muestreo[largos].min(axis=1)
+        if torsiones:
+            muestreo["RangoTorsiones"] = muestreo[torsiones].max(axis=1) - muestreo[torsiones].min(axis=1)
+
         for col in ["Turno", "Maquina", "TipoMasa", "Tripa"]:
             if col in muestreo.columns:
                 muestreo[col] = muestreo[col].astype(str)
 
-        return muestreo, sticks, None
+        sticks["Fecha"] = pd.to_datetime(sticks["Fecha"], errors="coerce")
+        sticks["TotalRotos"] = pd.to_numeric(sticks["TotalRotos"], errors="coerce").fillna(0)
+        for col in ["Tripa23180_40", "Tripa23180_50", "Tripa21170_40", "Tripa21170_50"]:
+            if col in sticks.columns:
+                sticks[col] = pd.to_numeric(sticks[col], errors="coerce").fillna(0)
+        if "Turno" in sticks.columns:
+            sticks["Turno"] = sticks["Turno"].astype(str)
+        if "Maquina" in sticks.columns:
+            sticks["Maquina"] = sticks["Maquina"].astype(str)
 
+        # Calcular U (defectos por unidad) para sticks
+        if "CantidadTotal" in sticks.columns:
+            sticks["U"] = sticks["TotalRotos"] / sticks["CantidadTotal"].replace(0, np.nan)
+        else:
+            sticks["U"] = sticks["TotalRotos"]
+
+        return muestreo, sticks, None
     except Exception as e:
         return None, None, str(e)
 
 
-# ─── HELPERS PARA CARTAS ───────────────────────────────────────────────────
+# ─── HELPERS ───────────────────────────────────────────────────────────────
 COLORES_TURNO = {"14": "#534AB7", "34": "#1d9e75", "38": "#D85A30"}
+# Constante d2 para n=10
+D2 = 3.078
+# Constantes para carta R con n=10
+D3 = 0.223
+D4 = 1.777
 
 def agregar_linea(fig, valor, nombre, color, dash="dash"):
     fig.add_hline(
@@ -68,23 +92,23 @@ def agregar_linea(fig, valor, nombre, color, dash="dash"):
         annotation_font_color=color, annotation_position="right"
     )
 
-def estilo_base(fig, titulo, ylabel):
+def estilo_base(fig, titulo, ylabel, height=320):
     fig.update_layout(
-        title=dict(text=titulo, font=dict(size=15)),
+        title=dict(text=titulo, font=dict(size=14)),
         xaxis_title="Fecha",
         yaxis_title=ylabel,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=10, r=80, t=60, b=10),
-        height=340,
+        margin=dict(l=10, r=90, t=60, b=10),
+        height=height,
         hovermode="x unified"
     )
     return fig
 
 
-# ─── CARTA X̄ ──────────────────────────────────────────────────────────────
-def carta_xbarra(df, maquina, campo="PromedioLargo", titulo_extra="Largo (cm)"):
+# ─── CARTA X̄ ────────────────────────────────────────────────────────────
+def carta_xbarra(df, maquina, campo, titulo_extra, ucl_esp=None, lcl_esp=None, meta=None):
     df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
-    if df_m.empty:
+    if df_m.empty or campo not in df_m.columns:
         return None
 
     xbar  = df_m[campo].mean()
@@ -94,27 +118,48 @@ def carta_xbarra(df, maquina, campo="PromedioLargo", titulo_extra="Largo (cm)"):
 
     fig = go.Figure()
     for turno, color in COLORES_TURNO.items():
-        d = df_m[df_m["Turno"] == str(turno)].sort_values("Fecha")
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
         if d.empty: continue
-        fig.add_trace(go.Scatter(
-            x=d["Fecha"], y=d[campo],
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d[campo],
             mode="lines+markers", name=f"Turno {turno}",
-            line=dict(color=color, width=2),
-            marker=dict(size=6)
-        ))
+            line=dict(color=color, width=2), marker=dict(size=6)))
 
-    agregar_linea(fig, UCL,  "UCL",      "#e24b4a", "dash")
-    agregar_linea(fig, LCL,  "LCL",      "#e24b4a", "dash")
-    agregar_linea(fig, xbar, "X̄",        "#185fa5", "dot")
-    if campo == "PromedioLargo":
-        agregar_linea(fig, 14.5, "Estándar", "#f39c12", "longdash")
-        agregar_linea(fig, 14.7, "LSE",      "#8e44ad", "dashdot")
-        agregar_linea(fig, 14.0, "LIE",      "#8e44ad", "dashdot")
+    agregar_linea(fig, UCL,  "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL,  "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, xbar, "X̄",  "#185fa5", "dot")
+    if ucl_esp: agregar_linea(fig, ucl_esp, "LSE", "#8e44ad", "dashdot")
+    if lcl_esp: agregar_linea(fig, lcl_esp, "LIE", "#8e44ad", "dashdot")
+    if meta:    agregar_linea(fig, meta,    "Meta","#f39c12", "longdash")
 
     return estilo_base(fig, f"Carta X̄ — {titulo_extra} | {maquina}", titulo_extra)
 
 
-# ─── CARTA p ───────────────────────────────────────────────────────────────
+# ─── CARTA R ────────────────────────────────────────────────────────────
+def carta_r(df, maquina, campo_rango, titulo_extra):
+    df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
+    if df_m.empty or campo_rango not in df_m.columns:
+        return None
+
+    Rbar = df_m[campo_rango].mean()
+    UCL  = D4 * Rbar
+    LCL  = D3 * Rbar
+
+    fig = go.Figure()
+    for turno, color in COLORES_TURNO.items():
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
+        if d.empty: continue
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d[campo_rango],
+            mode="lines+markers", name=f"Turno {turno}",
+            line=dict(color=color, width=2), marker=dict(size=6)))
+
+    agregar_linea(fig, UCL,  "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL,  "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, Rbar, "R̄",   "#185fa5", "dot")
+
+    return estilo_base(fig, f"Carta R — {titulo_extra} | {maquina}", "Rango")
+
+
+# ─── CARTA p ────────────────────────────────────────────────────────────
 def carta_p(df, maquina, n=10):
     df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
     if df_m.empty: return None
@@ -125,25 +170,101 @@ def carta_p(df, maquina, n=10):
 
     fig = go.Figure()
     for turno, color in COLORES_TURNO.items():
-        d = df_m[df_m["Turno"] == str(turno)].sort_values("Fecha")
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
         if d.empty: continue
-        fig.add_trace(go.Scatter(
-            x=d["Fecha"], y=d["p"],
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["p"],
             mode="lines+markers", name=f"Turno {turno}",
             line=dict(color=color, width=2),
-            marker=dict(size=6,
-                symbol=["circle" if v <= UCL else "x" for v in d["p"]])
-        ))
+            marker=dict(size=6, symbol=["x" if v > UCL else "circle" for v in d["p"]])))
 
     agregar_linea(fig, UCL, "UCL", "#e24b4a", "dash")
     agregar_linea(fig, LCL, "LCL", "#e24b4a", "dash")
     agregar_linea(fig, pb,  "p̄",   "#185fa5", "dot")
-
     fig.update_yaxes(tickformat=".1%")
-    return estilo_base(fig, f"Carta p — % Vienesas fuera de rango | {maquina}", "Proporción defectuosa")
+    return estilo_base(fig, f"Carta p — % Rechazo | {maquina}", "Proporción defectuosa")
 
 
-# ─── CARTA C ───────────────────────────────────────────────────────────────
+# ─── CARTA np ────────────────────────────────────────────────────────────
+def carta_np(df, maquina, n=10):
+    df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
+    if df_m.empty: return None
+
+    pb   = df_m["p"].mean()
+    npb  = pb * n
+    UCL  = npb + 3 * np.sqrt(npb * (1 - pb))
+    LCL  = max(0.0, npb - 3 * np.sqrt(npb * (1 - pb)))
+
+    fig = go.Figure()
+    for turno, color in COLORES_TURNO.items():
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
+        if d.empty: continue
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["np"],
+            mode="lines+markers", name=f"Turno {turno}",
+            line=dict(color=color, width=2), marker=dict(size=6)))
+
+    agregar_linea(fig, UCL, "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL, "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, npb, "n̄p",  "#185fa5", "dot")
+    return estilo_base(fig, f"Carta np — N° defectuosos | {maquina}", "N° defectuosos")
+
+
+# ─── CARTA I (Individuales) ──────────────────────────────────────────────
+def carta_i(df, maquina, campo, titulo_extra):
+    df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
+    if df_m.empty or campo not in df_m.columns:
+        return None
+
+    valores = df_m[campo].values
+    xbar    = np.mean(valores)
+    MR      = np.abs(np.diff(valores))
+    MR_bar  = np.mean(MR) if len(MR) > 0 else 0
+    UCL     = xbar + 3 * MR_bar / 1.128
+    LCL     = xbar - 3 * MR_bar / 1.128
+
+    fig = go.Figure()
+    for turno, color in COLORES_TURNO.items():
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
+        if d.empty: continue
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d[campo],
+            mode="lines+markers", name=f"Turno {turno}",
+            line=dict(color=color, width=2), marker=dict(size=6)))
+
+    agregar_linea(fig, UCL,  "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL,  "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, xbar, "X̄",   "#185fa5", "dot")
+    return estilo_base(fig, f"Carta I — {titulo_extra} | {maquina}", titulo_extra)
+
+
+# ─── CARTA MR ────────────────────────────────────────────────────────────
+def carta_mr(df, maquina, campo, titulo_extra):
+    df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
+    if df_m.empty or campo not in df_m.columns:
+        return None
+
+    valores = df_m[campo].values
+    MR      = np.concatenate([[np.nan], np.abs(np.diff(valores))])
+    MR_bar  = np.nanmean(MR)
+    UCL     = 3.267 * MR_bar
+    LCL     = 0.0
+
+    df_m = df_m.copy()
+    df_m["MR"] = MR
+
+    fig = go.Figure()
+    for turno, color in COLORES_TURNO.items():
+        d = df_m[df_m["Turno"] == turno].sort_values("Fecha")
+        if d.empty: continue
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["MR"],
+            mode="lines+markers", name=f"Turno {turno}",
+            line=dict(color=color, width=2), marker=dict(size=6)))
+
+    agregar_linea(fig, UCL,    "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL,    "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, MR_bar, "M̄R",  "#185fa5", "dot")
+    return estilo_base(fig, f"Carta MR — {titulo_extra} | {maquina}", "Rango móvil")
+
+
+# ─── CARTA C ─────────────────────────────────────────────────────────────
 def carta_c(df_stick, maquina=None):
     df = df_stick.copy()
     if maquina:
@@ -157,23 +278,48 @@ def carta_c(df_stick, maquina=None):
 
     fig = go.Figure()
     for turno, color in COLORES_TURNO.items():
-        d = df[df["Turno"] == str(turno)].sort_values("Fecha")
+        d = df[df["Turno"] == turno].sort_values("Fecha")
         if d.empty: continue
-        fig.add_trace(go.Scatter(
-            x=d["Fecha"], y=d["TotalRotos"],
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["TotalRotos"],
             mode="lines+markers", name=f"Turno {turno}",
-            line=dict(color=color, width=2), marker=dict(size=6)
-        ))
+            line=dict(color=color, width=2), marker=dict(size=6)))
 
     agregar_linea(fig, UCL, "UCL", "#e24b4a", "dash")
     agregar_linea(fig, LCL, "LCL", "#e24b4a", "dash")
     agregar_linea(fig, cb,  "c̄",   "#185fa5", "dot")
-
     label = maquina if maquina else "Ambas máquinas"
     return estilo_base(fig, f"Carta C — Stick rotos | {label}", "Cantidad stick rotos")
 
 
-# ─── GRÁFICO BARRAS APILADAS STICK ─────────────────────────────────────────
+# ─── CARTA U ─────────────────────────────────────────────────────────────
+def carta_u(df_stick, maquina=None):
+    df = df_stick.copy()
+    if maquina:
+        df = df[df["Maquina"] == maquina]
+    df = df.sort_values("Fecha")
+    if df.empty or "U" not in df.columns: return None
+
+    ub  = df["U"].mean()
+    n   = df["TotalRotos"].mean() if df["TotalRotos"].mean() > 0 else 1
+    UCL = ub + 3 * np.sqrt(ub / n)
+    LCL = max(0.0, ub - 3 * np.sqrt(ub / n))
+
+    fig = go.Figure()
+    for turno, color in COLORES_TURNO.items():
+        d = df[df["Turno"] == turno].sort_values("Fecha")
+        if d.empty: continue
+        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["U"],
+            mode="lines+markers", name=f"Turno {turno}",
+            line=dict(color=color, width=2), marker=dict(size=6)))
+
+    agregar_linea(fig, UCL, "UCL", "#e24b4a", "dash")
+    agregar_linea(fig, LCL, "LCL", "#e24b4a", "dash")
+    agregar_linea(fig, ub,  "ū",   "#185fa5", "dot")
+    label = maquina if maquina else "Ambas máquinas"
+    return estilo_base(fig, f"Carta U — Stick rotos por unidad | {label}", "Rotos por unidad")
+
+
+# ─── GRÁFICO BARRAS APILADAS ──────────────────────────────────────────────
 def grafico_sticks_apilado(df_stick, maquina=None):
     df = df_stick.copy()
     if maquina:
@@ -199,7 +345,7 @@ def grafico_sticks_apilado(df_stick, maquina=None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  CARGA DE DATOS
+#  CARGA
 # ═══════════════════════════════════════════════════════════════════════════
 with st.spinner("Cargando datos desde OneDrive..."):
     muestreo, sticks, error = cargar_datos()
@@ -209,17 +355,17 @@ if error:
     st.stop()
 
 if muestreo is None or muestreo.empty:
-    st.warning("⚠️ No se encontraron datos en el archivo Excel.")
+    st.warning("⚠️ No se encontraron datos.")
     st.stop()
 
-st.success(f"✅ Datos cargados: {len(muestreo)} registros de muestreo | {len(sticks) if sticks is not None else 0} registros de stick rotos")
+st.success(f"✅ {len(muestreo)} registros de muestreo | {len(sticks) if sticks is not None else 0} registros de stick rotos")
 
 if st.button("🔄 Actualizar datos"):
     st.cache_data.clear()
     st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  FILTROS GLOBALES
+#  FILTROS
 # ═══════════════════════════════════════════════════════════════════════════
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -241,91 +387,123 @@ df_filtrado = muestreo[
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  KPIs RESUMEN
+#  KPIs
 # ═══════════════════════════════════════════════════════════════════════════
 st.markdown("### 📊 Resumen del período")
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Registros",         len(df_filtrado))
 k2.metric("Prom. largo",       f"{df_filtrado['PromedioLargo'].mean():.2f} cm" if not df_filtrado.empty else "—")
-k3.metric("Prom. torsiones",   f"{df_filtrado['PromedioTorsiones'].mean():.1f}"  if not df_filtrado.empty else "—")
-k4.metric("% rechazo prom.",   f"{df_filtrado['p'].mean()*100:.1f}%"             if not df_filtrado.empty else "—")
+k3.metric("Prom. torsiones",   f"{df_filtrado['PromedioTorsiones'].mean():.1f}" if not df_filtrado.empty else "—")
+k4.metric("% rechazo prom.",   f"{df_filtrado['p'].mean()*100:.1f}%" if not df_filtrado.empty else "—")
 k5.metric("Total stick rotos", int(sticks["TotalRotos"].sum()) if sticks is not None and not sticks.empty else "—")
-
 st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  PESTAÑAS DE CARTAS
+#  PESTAÑAS
 # ═══════════════════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📏 Carta X̄ — Largo",
-    "🔄 Carta X̄ — Torsiones",
-    "📉 Carta p — Rechazo",
-    "🔩 Carta C — Stick rotos",
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📏 X̄-R Largo",
+    "🔄 X̄-R Torsiones",
+    "📉 p-np Rechazo",
+    "📐 I-MR Punta y Cola",
+    "🔩 C-U Stick rotos",
     "📋 Historial"
 ])
 
+# ── TAB 1: X̄-R Largo ──────────────────────────────────────────────────────
 with tab1:
-    st.markdown("**Promedio de largo por muestreo — comparación por turno y máquina**")
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = carta_xbarra(df_filtrado, "VEMAG 1", "PromedioLargo", "Largo (cm)")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 1")
-    with c2:
-        fig = carta_xbarra(df_filtrado, "VEMAG 2", "PromedioLargo", "Largo (cm)")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 2")
+    st.markdown("**Carta X̄-R — Largo de vienesa (cm)**")
+    for maq in ["VEMAG 1", "VEMAG 2"]:
+        st.markdown(f"##### {maq}")
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = carta_xbarra(df_filtrado, maq, "PromedioLargo", "Largo (cm)", ucl_esp=14.7, lcl_esp=14.0, meta=14.5)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
+        with c2:
+            fig = carta_r(df_filtrado, maq, "RangoLargo", "Largo (cm)")
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
 
+# ── TAB 2: X̄-R Torsiones ──────────────────────────────────────────────────
 with tab2:
-    st.markdown("**Promedio de torsiones por muestreo — comparación por turno y máquina**")
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = carta_xbarra(df_filtrado, "VEMAG 1", "PromedioTorsiones", "Torsiones")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 1")
-    with c2:
-        fig = carta_xbarra(df_filtrado, "VEMAG 2", "PromedioTorsiones", "Torsiones")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 2")
+    st.markdown("**Carta X̄-R — Torsiones**")
+    for maq in ["VEMAG 1", "VEMAG 2"]:
+        st.markdown(f"##### {maq}")
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = carta_xbarra(df_filtrado, maq, "PromedioTorsiones", "Torsiones", ucl_esp=4.0, lcl_esp=1.5, meta=2.0)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
+        with c2:
+            fig = carta_r(df_filtrado, maq, "RangoTorsiones", "Torsiones")
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
 
+# ── TAB 3: p-np ────────────────────────────────────────────────────────────
 with tab3:
-    st.markdown("**Proporción de vienesas fuera de rango (largo < 14.0 cm o > 14.7 cm)**")
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = carta_p(df_filtrado, "VEMAG 1")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 1")
-    with c2:
-        fig = carta_p(df_filtrado, "VEMAG 2")
-        if fig: st.plotly_chart(fig, use_container_width=True)
-        else:   st.info("Sin datos para VEMAG 2")
+    st.markdown("**Carta p-np — Proporción y número de vienesas rechazadas**")
+    for maq in ["VEMAG 1", "VEMAG 2"]:
+        st.markdown(f"##### {maq}")
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = carta_p(df_filtrado, maq)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
+        with c2:
+            fig = carta_np(df_filtrado, maq)
+            if fig: st.plotly_chart(fig, use_container_width=True)
+            else:   st.info(f"Sin datos para {maq}")
 
+# ── TAB 4: I-MR Punta y Cola ──────────────────────────────────────────────
 with tab4:
+    st.markdown("**Carta I-MR — Punta y Cola (mediciones individuales)**")
+    for maq in ["VEMAG 1", "VEMAG 2"]:
+        st.markdown(f"##### {maq}")
+        for campo, label in [("Punta", "Punta"), ("Cola", "Cola")]:
+            if campo in df_filtrado.columns:
+                st.markdown(f"**{label}**")
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig = carta_i(df_filtrado, maq, campo, label)
+                    if fig: st.plotly_chart(fig, use_container_width=True)
+                    else:   st.info(f"Sin datos para {maq}")
+                with c2:
+                    fig = carta_mr(df_filtrado, maq, campo, label)
+                    if fig: st.plotly_chart(fig, use_container_width=True)
+                    else:   st.info(f"Sin datos para {maq}")
+
+# ── TAB 5: C-U Sticks ─────────────────────────────────────────────────────
+with tab5:
     if sticks is None or sticks.empty:
         st.info("Sin datos de stick rotos aún.")
     else:
         df_stick_f = sticks.copy()
         if turnos_sel:
             df_stick_f = df_stick_f[df_stick_f["Turno"].isin([str(t) for t in turnos_sel])]
-        c1, c2 = st.columns(2)
-        with c1:
-            fig = carta_c(df_stick_f, "VEMAG 1")
-            if fig: st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            fig = carta_c(df_stick_f, "VEMAG 2")
-            if fig: st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("**Carta C-U — Stick rotos**")
+        for maq in ["VEMAG 1", "VEMAG 2"]:
+            st.markdown(f"##### {maq}")
+            c1, c2 = st.columns(2)
+            with c1:
+                fig = carta_c(df_stick_f, maq)
+                if fig: st.plotly_chart(fig, use_container_width=True)
+            with c2:
+                fig = carta_u(df_stick_f, maq)
+                if fig: st.plotly_chart(fig, use_container_width=True)
+
         fig_bar = grafico_sticks_apilado(df_stick_f)
         if fig_bar: st.plotly_chart(fig_bar, use_container_width=True)
 
-with tab5:
+# ── TAB 6: Historial ──────────────────────────────────────────────────────
+with tab6:
     st.markdown("**Registros de muestreo**")
     cols_mostrar = ["Fecha","Turno","Maquina","TipoMasa","Tripa",
                     "CantidadTotal","PromedioLargo","PromedioTorsiones",
-                    "Defectuosas","p"]
+                    "Punta","Cola","Defectuosas","p"]
     cols_ok = [c for c in cols_mostrar if c in df_filtrado.columns]
-    st.dataframe(
-        df_filtrado[cols_ok].sort_values("Fecha", ascending=False),
-        use_container_width=True, hide_index=True
-    )
+    st.dataframe(df_filtrado[cols_ok].sort_values("Fecha", ascending=False),
+                 use_container_width=True, hide_index=True)
     csv = df_filtrado[cols_ok].to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Descargar CSV", csv, "muestreo.csv", "text/csv")
