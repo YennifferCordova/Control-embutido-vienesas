@@ -401,13 +401,12 @@ st.markdown("---")
 # ═══════════════════════════════════════════════════════════════════════════
 #  PESTAÑAS
 # ═══════════════════════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📏 X̄-R Largo",
     "🔄 X̄-R Torsiones",
     "📉 p-np Rechazo",
     "📐 I-MR Punta y Cola",
-    "🔩 C-U Stick rotos",
-    "📋 Historial"
+    "🔩 C-U Stick rotos"
 ])
 
 # ── TAB 1: X̄-R Largo ──────────────────────────────────────────────────────
@@ -493,17 +492,8 @@ with tab5:
                 fig = carta_u(df_stick_f, maq)
                 if fig: st.plotly_chart(fig, use_container_width=True)
 
-        fig_bar = grafico_sticks_apilado(df_stick_f)
+        st.markdown("**Comparativo stick rotos por tipo de tripa**")
+        turno_bar_sel = st.multiselect("Filtrar gráfico por turno", turnos_disp, default=turnos_disp, key="turno_bar")
+        df_stick_bar = df_stick_f[df_stick_f["Turno"].isin(turno_bar_sel)] if turno_bar_sel else df_stick_f
+        fig_bar = grafico_sticks_apilado(df_stick_bar)
         if fig_bar: st.plotly_chart(fig_bar, use_container_width=True)
-
-# ── TAB 6: Historial ──────────────────────────────────────────────────────
-with tab6:
-    st.markdown("**Registros de muestreo**")
-    cols_mostrar = ["Fecha","Turno","Maquina","TipoMasa","Tripa",
-                    "CantidadTotal","PromedioLargo","PromedioTorsiones",
-                    "Punta","Cola","Defectuosas","p"]
-    cols_ok = [c for c in cols_mostrar if c in df_filtrado.columns]
-    st.dataframe(df_filtrado[cols_ok].sort_values("Fecha", ascending=False),
-                 use_container_width=True, hide_index=True)
-    csv = df_filtrado[cols_ok].to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ Descargar CSV", csv, "muestreo.csv", "text/csv")
