@@ -106,7 +106,7 @@ def estilo_base(fig, titulo, ylabel, height=320):
 
 
 # ─── CARTA X̄ ────────────────────────────────────────────────────────────
-def carta_xbarra(df, maquina, campo, titulo_extra, ucl_esp=None, lcl_esp=None, meta=None):
+def carta_xbarra(df, maquina, campo, titulo_extra, meta=None):
     df_m = df[df["Maquina"] == maquina].copy().sort_values("Fecha")
     if df_m.empty or campo not in df_m.columns:
         return None
@@ -127,9 +127,7 @@ def carta_xbarra(df, maquina, campo, titulo_extra, ucl_esp=None, lcl_esp=None, m
     agregar_linea(fig, UCL,  "UCL", "#e24b4a", "dash")
     agregar_linea(fig, LCL,  "LCL", "#e24b4a", "dash")
     agregar_linea(fig, xbar, "X̄",  "#185fa5", "dot")
-    if ucl_esp: agregar_linea(fig, ucl_esp, "LSE", "#8e44ad", "dashdot")
-    if lcl_esp: agregar_linea(fig, lcl_esp, "LIE", "#8e44ad", "dashdot")
-    if meta:    agregar_linea(fig, meta,    "Meta","#f39c12", "longdash")
+    if meta: agregar_linea(fig, meta, "Meta", "#f39c12", "longdash")
 
     return estilo_base(fig, f"Carta X̄ — {titulo_extra} | {maquina}", titulo_extra)
 
@@ -319,7 +317,7 @@ def carta_u(df_stick, maquina=None):
     return estilo_base(fig, f"Carta U — Stick rotos por unidad | {label}", "Rotos por unidad")
 
 
-# ─── GRÁFICO BARRAS APILADAS ──────────────────────────────────────────────
+# ─── GRÁFICO COMPARATIVO POR TIPO DE TRIPA (LÍNEAS) ───────────────────────
 def grafico_sticks_apilado(df_stick, maquina=None):
     df = df_stick.copy()
     if maquina:
@@ -327,7 +325,6 @@ def grafico_sticks_apilado(df_stick, maquina=None):
     df = df.sort_values("Fecha")
     if df.empty: return None
 
-    etiquetas = df["Fecha"].dt.strftime("%d/%m %H:%M").tolist()
     fig = go.Figure()
     for campo, nombre, color in [
         ("Tripa23180_40", "23-180 / 40cm", "#534AB7"),
@@ -336,10 +333,16 @@ def grafico_sticks_apilado(df_stick, maquina=None):
         ("Tripa21170_50", "21-170 / 50cm", "#F0997B"),
     ]:
         if campo in df.columns:
-            fig.add_trace(go.Bar(x=etiquetas, y=df[campo], name=nombre, marker_color=color))
-    fig.update_layout(barmode="stack", height=300,
+            fig.add_trace(go.Scatter(
+                x=df["Fecha"], y=df[campo], name=nombre,
+                mode="lines+markers", line=dict(color=color, width=2),
+                marker=dict(size=6)
+            ))
+    fig.update_layout(height=320,
                       title="Comparativo stick rotos por tipo de tripa",
+                      xaxis_title="Fecha", yaxis_title="Cantidad",
                       margin=dict(l=10,r=10,t=50,b=10),
+                      hovermode="x unified",
                       legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="right",x=1))
     return fig
 
@@ -416,7 +419,7 @@ with tab1:
         st.markdown(f"##### {maq}")
         c1, c2 = st.columns(2)
         with c1:
-            fig = carta_xbarra(df_filtrado, maq, "PromedioLargo", "Largo (cm)", ucl_esp=14.7, lcl_esp=14.0, meta=14.5)
+            fig = carta_xbarra(df_filtrado, maq, "PromedioLargo", "Largo (cm)", meta=14.5)
             if fig: st.plotly_chart(fig, use_container_width=True)
             else:   st.info(f"Sin datos para {maq}")
         with c2:
@@ -431,7 +434,7 @@ with tab2:
         st.markdown(f"##### {maq}")
         c1, c2 = st.columns(2)
         with c1:
-            fig = carta_xbarra(df_filtrado, maq, "PromedioTorsiones", "Torsiones", ucl_esp=4.0, lcl_esp=1.5, meta=2.0)
+            fig = carta_xbarra(df_filtrado, maq, "PromedioTorsiones", "Torsiones", meta=2.0)
             if fig: st.plotly_chart(fig, use_container_width=True)
             else:   st.info(f"Sin datos para {maq}")
         with c2:
