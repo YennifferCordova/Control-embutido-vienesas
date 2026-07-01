@@ -8,11 +8,11 @@ from io import BytesIO
 # ─── CONFIGURACIÓN DE PÁGINA ───────────────────────────────────────────────
 st.set_page_config(
     page_title="Control de Proceso — Vienesas",
-    page_icon="🌭",
+    page_icon=None,
     layout="wide"
 )
 
-st.title("🌭 Control de Proceso — Vienesas")
+st.title("Control de Proceso — Vienesas")
 st.markdown("---")
 
 # ─── LINK DE ONEDRIVE ──────────────────────────────────────────────────────
@@ -68,9 +68,13 @@ def cargar_datos():
 
         # Calcular U (defectos por unidad) para sticks
         if "CantidadTotal" in sticks.columns:
+            sticks["CantidadTotal"] = pd.to_numeric(sticks["CantidadTotal"], errors="coerce")
             sticks["U"] = sticks["TotalRotos"] / sticks["CantidadTotal"].replace(0, np.nan)
+            sticks["_tiene_cantidad"] = True
         else:
-            sticks["U"] = sticks["TotalRotos"]
+            sticks["U"] = np.nan
+            sticks["CantidadTotal"] = np.nan
+            sticks["_tiene_cantidad"] = False
 
         return muestreo, sticks, None
     except Exception as e:
@@ -291,33 +295,78 @@ def carta_c(df_stick, maquina=None):
 
 # ─── CARTA U ─────────────────────────────────────────────────────────────
 def carta_u(df_stick, maquina=None):
+    """
+    Carta U correcta:
+    - u_i = TotalRotos_i / CantidadTotal_i  (defectos por unidad inspeccionada)
+    - u_bar = sum(TotalRotos) / sum(CantidadTotal)  (estimador global)
+    - UCL_i = u_bar + 3 * sqrt(u_bar / n_i)   (varía por fila)
+    - LCL_i = max(0, u_bar - 3 * sqrt(u_bar / n_i))
+    """
     df = df_stick.copy()
     if maquina:
         df = df[df["Maquina"] == maquina]
     df = df.sort_values("Fecha")
-    if df.empty or "U" not in df.columns: return None
 
-    ub  = df["U"].mean()
-    n   = df["TotalRotos"].mean() if df["TotalRotos"].mean() > 0 else 1
-    UCL = ub + 3 * np.sqrt(ub / n)
-    LCL = max(0.0, ub - 3 * np.sqrt(ub / n))
+    if df.empty:
+        return None
+    if "CantidadTotal" not in df.columns:
+        return None
+
+    # Solo filas con CantidadTotal válida y positiva
+    df = df.dropna(subset=["CantidadTotal", "TotalRotos"])
+    df = df[df["CantidadTotal"] > 0].copy()
+    if df.empty:
+        return None
+
+    # Estimador global correcto
+    u_bar = df["TotalRotos"].sum() / df["CantidadTotal"].sum()
+
+    # u_i real por fila
+    df["u_i"] = df["TotalRotos"] / df["CantidadTotal"]
 
     fig = go.Figure()
+
+    # Líneas de datos por turno
     for turno, color in COLORES_TURNO.items():
         d = df[df["Turno"] == turno].sort_values("Fecha")
-        if d.empty: continue
-        fig.add_trace(go.Scatter(x=d["Fecha"], y=d["U"],
+        if d.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=d["Fecha"], y=d["u_i"],
             mode="lines+markers", name=f"Turno {turno}",
-            line=dict(color=color, width=2), marker=dict(size=6)))
+            line=dict(color=color, width=2), marker=dict(size=6)
+        ))
 
-    agregar_linea(fig, UCL, "UCL", "#e24b4a", "dash")
-    agregar_linea(fig, LCL, "LCL", "#e24b4a", "dash")
-    agregar_linea(fig, ub,  "ū",   "#185fa5", "dot")
-    label = maquina if maquina else "Ambas máquinas"
-    return estilo_base(fig, f"Carta U — Stick rotos por unidad | {label}", "Rotos por unidad")
+    # Límites variables por fila (dependen de n_i)
+    ucl_vals = []
+    lcl_vals = []
+    for _, row in df.iterrows():
+        ni = row["CantidadTotal"]
+        ucl_vals.append(u_bar + 3 * np.sqrt(u_bar / ni))
+        lcl_vals.append(max(0.0, u_bar - 3 * np.sqrt(u_bar / ni)))
 
+    fig.add_trace(go.Scatter(
+        x=df["Fecha"], y=ucl_vals,
+        mode="lines", name="UCL",
+        line=dict(color="#e24b4a", dash="dash", width=1.5),
+        showlegend=True
+    ))
+    fig.add_trace(go.Scatter(
+        x=df["Fecha"], y=lcl_vals,
+        mode="lines", name="LCL",
+        line=dict(color="#e24b4a", dash="dash", width=1.5),
+        showlegend=False
+    ))
 
-# ─── GRÁFICO LÍNEAS POR TURNO ──────────────────────────────────────────────
+    agregar_linea(fig, u_bar, "u-bar", "#185fa5", "dot")
+
+    label = maquina if maquina else "Ambas maquinas"
+    return estilo_base(
+        fig,
+        f"Carta U - Stick rotos por unidad producida | {label}",
+        "Rotos / unidad producida"
+    )
+
 def grafico_lineas_turno(df_stick, columnas_tripa):
     df = df_stick.copy().sort_values("Fecha")
     if df.empty: return None
